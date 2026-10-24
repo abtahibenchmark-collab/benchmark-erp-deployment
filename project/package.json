@@ -1,0 +1,25 @@
+{
+  "name": "benchmark-rmg-erp-control-tower-v9-2-live-google-sheets-erp",
+  "version": "9.5.0-rc.2",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "node tests/backend-validation.test.cjs",
+    "check:backend": "node tests/backend-validation.test.cjs"
+  },
+  "dependencies": {
+    "next": "14.2.35",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "lucide-react": "0.468.0",
+    "recharts": "2.15.4"
+  },
+  "devDependencies": {
+    "typescript": "5.7.3",
+    "@types/node": "22.10.5",
+    "@types/react": "18.3.18",
+    "@types/react-dom": "18.3.5"
+  }
+}
