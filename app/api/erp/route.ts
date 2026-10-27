@@ -41,11 +41,7 @@ export async function GET(request: NextRequest) {
   if (!session && action !== 'health') return authError();
   try {
     const { base, token } = connectionConfig(); const url = new URL(base);
-    request.nextUrl.searchParams.forEach((value, key) => {
-  if (key !== 'token' && key !== 'username') {
-    url.searchParams.set(key, value);
-  }
-});
+    for (const [key,value] of request.nextUrl.searchParams.entries()) if (key !== 'token' && key !== 'username') url.searchParams.set(key,value);
     // Never trust a client-supplied username for factory-scoped records.
     if (session) url.searchParams.set('username', session.username);
     else url.searchParams.delete('username');

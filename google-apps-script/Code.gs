@@ -15,7 +15,7 @@ const ERP_SHEETS = {
   shipment: { name: 'Shipment', headers: ['Date','PO','Factory','Shipment Plan','Actual Shipment','Carton Qty','ETD','Status'] },
   reconciliation: { name: 'Reconciliation', headers: ['Buyer','Style','PO','Factory','Order Qty','Material Issued','Cut Qty','Sew Qty','Finish Qty','FG Qty','Shipment Qty','Balance','Variance','Status'] },
   material: { name: 'Material_Control', headers: ['Date','PO','Factory','Material Type','Material','Unit','Required Qty','Ordered Qty','Received Qty','Issued Qty','Balance Qty','Supplier','Expected Date','Status'] },
-  store: { name: 'Store', headers: ['Date','PO','Factory','GRN Number','Item Type','Item','Unit','GRN Qty','Issue Qty','Balance Qty','Supplier','Received By','Status'] },
+  store: { name: 'Store', headers: ['Date','Factory','GRN Number','Style','Color Name','Item Type','Item','Unit','GRN Qty','Issue Qty','Balance Qty','Supplier','Received By','Status'] },
   quality: { name: 'Quality', headers: ['Date','PO','Factory','Line','Inspection Type','Checked Qty','Defect Qty','Defect Type','Reject Qty','DHU %','Status'] },
   merchandising: { name: 'Merchandising', headers: ['Date','Buyer','PO Number','Style','Factory','Season','Product','Quantity','Target Date','Status'] },
   planningapprovals: { name: 'Planning_Approvals', headers: ['Request ID','Requested At','Requested By','Factory','PO','Allocation ID','Proposed Line','Proposed Start','Proposed End','Reason','Status','Reviewed By','Reviewed At','Decision Note'] },
