@@ -10,12 +10,12 @@
  * and the Next.js server environment; never put it in client-side code.
  */
 const ERP_SHEETS = {
-  orders: { name: 'Orders', headers: ['Date','Buyer','PO Number','Style','Factory','Order Qty','SMV','Order Minutes','Shipment Date','Status'] },
-  production: { name: 'Production', headers: ['Date','Factory','Line','Style','PO','Target','Cutting','Sewing Output','Finishing','FG Qty','Efficiency','Reject','Status'] },
+  orders: { name: 'Orders', headers: ['Date','Buyer','PO Number','Style','Color','Factory','Order Qty','SMV','Order Minutes','Shipment Date','Status'] },
+  production: { name: 'Production', headers: ['Date','Factory','Line','Style','PO','Target','SMV','Manpower','Working Hours','Cutting','Sewing Output','Finishing','FG Qty','Efficiency','Reject','Status'] },
   shipment: { name: 'Shipment', headers: ['Date','PO','Factory','Shipment Plan','Actual Shipment','Carton Qty','ETD','Status'] },
-  reconciliation: { name: 'Reconciliation', headers: ['Buyer','Style','PO','Factory','Order Qty','Material Issued','Cut Qty','Sew Qty','Finish Qty','FG Qty','Shipment Qty','Balance','Variance','Status'] },
-  material: { name: 'Material_Control', headers: ['Date','PO','Factory','Material Type','Material','Unit','Required Qty','Ordered Qty','Received Qty','Issued Qty','Balance Qty','Supplier','Expected Date','Status'] },
-  store: { name: 'Store', headers: ['Date','Factory','GRN Number','Style','Color Name','Item Type','Item','Unit','GRN Qty','Issue Qty','Balance Qty','Supplier','Received By','Status'] },
+  reconciliation: { name: 'Reconciliation', headers: ['Buyer','Style','Color','PO','Factory','Order Month','Order Qty','Material Required','Material Ordered','Material Received','Material Issued','Material Balance','Material Shortage','Store Received','Store Issued','Store Balance','Cut Qty','Sew Qty','Finish Qty','FG Qty','Shipment Qty','Balance','Variance','Status'] },
+  material: { name: 'Material_Control', headers: ['Date','Style No','Color','Buyer','Order Month','Factory','Material Type','Material','Unit','Required Qty','Ordered Qty','Received Qty','Issued Qty','Balance Qty','Supplier','Expected Date','Status'] },
+  store: { name: 'Store', headers: ['Date','Style No','Color','Buyer','Order Month','Factory','GRN Number','Item Type','Item','Unit','GRN Qty','Issue Qty','Balance Qty','Supplier','Received By','Status'] },
   quality: { name: 'Quality', headers: ['Date','PO','Factory','Line','Inspection Type','Checked Qty','Defect Qty','Defect Type','Reject Qty','DHU %','Status'] },
   merchandising: { name: 'Merchandising', headers: ['Date','Buyer','PO Number','Style','Factory','Season','Product','Quantity','Target Date','Status'] },
   planningapprovals: { name: 'Planning_Approvals', headers: ['Request ID','Requested At','Requested By','Factory','PO','Allocation ID','Proposed Line','Proposed Start','Proposed End','Reason','Status','Reviewed By','Reviewed At','Decision Note'] },
@@ -216,7 +216,7 @@ function saveRecord_(body) {
   if (module === 'quality') { const checked=num_(record['Checked Qty']); record['DHU %']=checked>0?Math.round((num_(record['Defect Qty'])/checked*100)*100)/100:0; }
   if (module === 'store') record['Balance Qty']=Math.max(0,num_(record['GRN Qty'])-num_(record['Issue Qty']));
   if (module === 'material') record['Balance Qty']=Math.max(0,num_(record['Received Qty'])-num_(record['Issued Qty']));
-  if (module === 'production' && !String(record.Efficiency || '').trim()) { const target=num_(record.Target); record.Efficiency=target>0?Math.round((num_(record['Sewing Output'])/target*100)*100)/100:0; }
+  if (module === 'production') record.Efficiency = productionEfficiency_(record);
   const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
   const now = new Date();
   const recordIdHeader = 'Record ID';
@@ -287,10 +287,20 @@ function redactAudit_(record) {
   Object.keys(record || {}).forEach(k => {if (!/^_|password|pin|token|secret|salt|hash/i.test(k)) out[k] = record[k] instanceof Date ? record[k].toISOString() : record[k]; });
   return out;
 }
+function productionEfficiency_(record) {
+  const output = num_(record && record['Sewing Output']);
+  const smv = num_(record && record.SMV);
+  const manpower = num_(record && record.Manpower);
+  const hours = num_(record && record['Working Hours']);
+  const availableMinutes = manpower * hours * 60;
+  if (availableMinutes > 0) return Math.round((output * smv / availableMinutes * 100) * 100) / 100;
+  const target = num_(record && record.Target);
+  return target > 0 ? Math.round((output / target * 100) * 100) / 100 : 0;
+}
 function validateERPRecord_(module, record) {
   const quantities = {
     orders:['Order Qty','SMV'], planning:['Plan Qty'],
-    production:['Target','Cutting','Sewing Output','Finishing','FG Qty','Reject'],
+    production:['Target','SMV','Manpower','Working Hours','Cutting','Sewing Output','Finishing','FG Qty','Reject'],
     material:['Required Qty','Ordered Qty','Received Qty','Issued Qty'],
     store:['GRN Qty','Issue Qty'], quality:['Checked Qty','Defect Qty','Reject Qty'],
     shipment:['Shipment Plan','Actual Shipment','Carton Qty']
@@ -303,12 +313,24 @@ function validateERPRecord_(module, record) {
   });
   if (module === 'orders' && record['Order Qty'] !== undefined && Number(record['Order Qty']) <= 0)
     throw new Error('Order Qty must be greater than zero.');
+  if (module === 'store' || module === 'material') {
+    ['Style No','Color','Buyer','Order Month','Factory'].forEach(field => {
+      if (!String(record[field] || '').trim()) throw new Error(field + ' is required for style-wise store/material tracking.');
+    });
+  }
+  if (module === 'quality' && record['Checked Qty'] !== undefined && num_(record['Checked Qty']) <= 0)
+    throw new Error('Checked Qty must be greater than zero to calculate DHU.');
   if (module === 'quality' && record['Checked Qty'] !== undefined && num_(record['Reject Qty']) > num_(record['Checked Qty']))
     throw new Error('Rejected quantity cannot exceed checked quantity.');
   if (module === 'material' && record['Received Qty'] !== undefined && record['Issued Qty'] !== undefined && num_(record['Issued Qty']) > num_(record['Received Qty']))
     throw new Error('Issued material quantity cannot exceed received quantity.');
   if (module === 'production' && record['Finishing'] !== undefined && record['Sewing Output'] !== undefined && Number(record['Finishing']) > Number(record['Sewing Output']))
     throw new Error('Finishing output cannot exceed sewing output in this entry.');
+  if (module === 'production') {
+    ['SMV','Manpower','Working Hours'].forEach(field => {
+      if (num_(record[field]) <= 0) throw new Error(field + ' must be greater than zero to calculate production efficiency.');
+    });
+  }
   if (module === 'store' && record['GRN Qty'] !== undefined && record['Issue Qty'] !== undefined && Number(record['Issue Qty']) > Number(record['GRN Qty']))
     throw new Error('Issue Qty cannot exceed GRN Qty for this entry.');
 }
@@ -712,6 +734,38 @@ function buildDashboard_(fromDate, toDate, username) {
   }).sort((a,b)=>a.factory.localeCompare(b.factory)||a.po.localeCompare(b.po)||a.style.localeCompare(b.style));
   return { lastUpdated: new Date().toISOString(), kpis: { runningOrders, monthlyShipment, productionEfficiency, criticalAlerts }, factories, months, lines, poStyleProgress };
 }
+function monthKey_(value) {
+  if (!value) return '';
+  if (value instanceof Date && !isNaN(value.getTime())) return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM');
+  const text = String(value).trim();
+  const iso = text.match(/^(\d{4})[-/](\d{1,2})/);
+  if (iso) return iso[1] + '-' + ('0' + iso[2]).slice(-2);
+  const parsed = new Date(text);
+  if (!isNaN(parsed.getTime())) return Utilities.formatDate(parsed, Session.getScriptTimeZone(), 'yyyy-MM');
+  return text.toLowerCase();
+}
+function styleKey_(row) { return String(row['Style No'] || row.Style || row['Style Number'] || '').trim().toLowerCase(); }
+function factoryKey_(row) { return String(row.Factory || '').trim().toLowerCase(); }
+function buyerKey_(row) { return String(row.Buyer || '').trim().toLowerCase(); }
+function colorKey_(row) { return String(row.Color || '').trim().toLowerCase(); }
+function recordMatchesStyleGroup_(record, group) {
+  const recordPo = String(record.PO || record['PO Number'] || '').trim();
+  if (factoryKey_(record) && factoryKey_(record) !== group.factoryKey) return false;
+  if (recordPo) {
+    if (group.pos.indexOf(recordPo) === -1) return false;
+    if (colorKey_(record) && group.colorKey && colorKey_(record) !== group.colorKey) return false;
+    const linkedMonth = monthKey_(record['Order Month']);
+    if (linkedMonth && group.orderMonth && linkedMonth !== group.orderMonth) return false;
+    return true;
+  }
+  const style = styleKey_(record);
+  if (!style || style !== group.styleKey) return false;
+  if (buyerKey_(record) && buyerKey_(record) !== group.buyerKey) return false;
+  if (colorKey_(record) && group.colorKey && colorKey_(record) !== group.colorKey) return false;
+  const recordMonth = monthKey_(record['Order Month']);
+  if (recordMonth && group.orderMonth && recordMonth !== group.orderMonth) return false;
+  return true;
+}
 function buildReconciliation_(username) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const orders = records_(ss.getSheetByName(ERP_SHEETS.orders.name));
@@ -724,7 +778,7 @@ function buildReconciliation_(username) {
     const user = findERPUser_(username);
     if (String(user.Role || '').trim().toLowerCase() !== 'admin') {
       allowedFactories = String(user['Factory Access'] || '').split(/[;,]/).map(v => v.trim().toLowerCase()).filter(Boolean);
-      const permitted = r => allowedFactories.includes(String(r.Factory || '').trim().toLowerCase());
+      const permitted = r => allowedFactories.includes(factoryKey_(r));
       orders.splice(0, orders.length, ...orders.filter(permitted));
       prod.splice(0, prod.length, ...prod.filter(permitted));
       ships.splice(0, ships.length, ...ships.filter(permitted));
@@ -732,29 +786,92 @@ function buildReconciliation_(username) {
       store.splice(0, store.length, ...store.filter(permitted));
     }
   }
-  // Derive reconciliation from the operational source tabs so new order/production/shipment
-  // entries are reflected immediately rather than relying on stale copied totals.
-  let rows = orders.map(o => {
-    const po = String(o['PO Number'] || o.PO || '');
-    const p = prod.filter(r => String(r.PO || r['PO Number'] || '') === po);
-    const s = ships.filter(r => String(r.PO || r['PO Number'] || '') === po);
-    const m = materials.filter(r => String(r.PO || r['PO Number'] || '') === po);
-    const st = store.filter(r => String(r.PO || r['PO Number'] || '') === po);
-    const orderQty = num_(o['Order Qty']);
-    const materialIssued = m.reduce((a,r)=>a+num_(r['Issued Qty']),0) + st.reduce((a,r)=>a+num_(r['Issue Qty']),0);
-    const cutQty = p.reduce((a,r)=>a+num_(r.Cutting),0);
-    const sewQty = p.reduce((a,r)=>a+num_(r['Sewing Output']),0);
-    const finishQty = p.reduce((a,r)=>a+num_(r.Finishing),0);
-    const fgQty = p.reduce((a,r)=>a+num_(r['FG Qty']),0);
-    const shipmentQty = s.reduce((a,r)=>a+num_(r['Actual Shipment']),0);
+  // Group orders by buyer, style, factory and month because Store and Material Control
+  // intentionally identify stock by these fields instead of a PO number.
+  const groupsByKey = {};
+  orders.forEach(o => {
+    const style = styleKey_(o);
+    const buyer = buyerKey_(o);
+    const factory = factoryKey_(o);
+    const color = colorKey_(o);
+    const orderMonth = monthKey_(o['Order Month'] || o.Date);
+    const po = String(o['PO Number'] || o.PO || '').trim();
+    const key = [factory, buyer, style || ('po:' + po.toLowerCase()), color, orderMonth].join('|');
+    if (!groupsByKey[key]) groupsByKey[key] = { buyer:String(o.Buyer||''), style:String(o.Style||o['Style No']||''), color:String(o.Color||''), factory:String(o.Factory||''), factoryKey:factory, buyerKey:buyer, styleKey:style, colorKey:color, orderMonth:orderMonth, pos:[], orders:[] };
+    const group = groupsByKey[key];
+    if (po && group.pos.indexOf(po) === -1) group.pos.push(po);
+    group.orders.push(o);
+  });
+  // Keep unmatched style-based Store/Material entries visible instead of silently dropping them
+  // when an Order Master record has not yet been created.
+  materials.concat(store).forEach(record => {
+    const style = styleKey_(record);
+    if (!style) return;
+    const buyer = buyerKey_(record), factory = factoryKey_(record), color = colorKey_(record);
+    const orderMonth = monthKey_(record['Order Month']);
+    const po = String(record.PO || record['PO Number'] || '').trim();
+    const compatibleOrderGroup = Object.keys(groupsByKey).some(key => {
+      const g = groupsByKey[key];
+      if (factory && factory !== g.factoryKey) return false;
+      if (buyer && buyer !== g.buyerKey) return false;
+      if (style !== g.styleKey) return false;
+      if (color && g.colorKey && color !== g.colorKey) return false;
+      if (orderMonth && g.orderMonth && orderMonth !== g.orderMonth) return false;
+      if (po && g.pos.indexOf(po) === -1) return false;
+      return true;
+    });
+    if (compatibleOrderGroup) return;
+    const key = [factory,buyer,style,color,orderMonth].join('|');
+    if (!groupsByKey[key]) groupsByKey[key] = {
+      buyer:String(record.Buyer||''), style:String(record['Style No']||record.Style||''), color:String(record.Color||''),
+      factory:String(record.Factory||''), factoryKey:factory, buyerKey:buyer, styleKey:style, colorKey:color,
+      orderMonth:orderMonth, pos:po?[po]:[], orders:[]
+    };
+    else if (po && groupsByKey[key].pos.indexOf(po)===-1) groupsByKey[key].pos.push(po);
+  });
+  let rows = Object.keys(groupsByKey).map(key => {
+    const group = groupsByKey[key];
+    const groupOrders = group.orders;
+    const orderQty = groupOrders.reduce((sum,r)=>sum+num_(r['Order Qty']),0);
+    const p = prod.filter(r => recordMatchesStyleGroup_(r, group));
+    const sh = ships.filter(r => recordMatchesStyleGroup_(r, group));
+    const m = materials.filter(r => recordMatchesStyleGroup_(r, group));
+    const st = store.filter(r => recordMatchesStyleGroup_(r, group));
+    const materialRequired = m.reduce((sum,r)=>sum+num_(r['Required Qty']),0);
+    const materialOrdered = m.reduce((sum,r)=>sum+num_(r['Ordered Qty']),0);
+    const materialReceived = m.reduce((sum,r)=>sum+num_(r['Received Qty']),0);
+    const materialIssued = m.reduce((sum,r)=>sum+num_(r['Issued Qty']),0);
+    const materialBalance = Math.max(0,materialReceived-materialIssued);
+    const materialShortage = Math.max(0,materialRequired-materialReceived);
+    const storeReceived = st.reduce((sum,r)=>sum+num_(r['GRN Qty']),0);
+    const storeIssued = st.reduce((sum,r)=>sum+num_(r['Issue Qty']),0);
+    const storeBalance = Math.max(0,storeReceived-storeIssued);
+    const cutQty = p.reduce((sum,r)=>sum+num_(r.Cutting),0);
+    const sewQty = p.reduce((sum,r)=>sum+num_(r['Sewing Output']),0);
+    const finishQty = p.reduce((sum,r)=>sum+num_(r.Finishing),0);
+    const fgQty = p.reduce((sum,r)=>sum+num_(r['FG Qty']),0);
+    const shipmentQty = sh.reduce((sum,r)=>sum+num_(r['Actual Shipment']),0);
     const balance = orderQty-shipmentQty;
     const variance = Math.max(0,cutQty-fgQty);
-    return { buyer:String(o.Buyer||''), style:String(o.Style||''), po, factory:String(o.Factory||''), orderQty, materialIssued, cutQty, sewQty, finishQty, fgQty, shipmentQty, balance, variance, status:balance<=0?'Complete':variance>1000?'Critical':'Attention' };
+    let status = orderQty <= 0 ? 'No Order Master' : balance <= 0 ? 'Complete' : variance > 1000 ? 'Critical' : materialShortage > 0 ? 'Material Shortage' : 'Attention';
+    return {
+      buyer:group.buyer, style:group.style, color:group.color, po:group.pos.join(', '), factory:group.factory, orderMonth:group.orderMonth,
+      orderQty, materialRequired, materialOrdered, materialReceived, materialIssued, materialBalance, materialShortage,
+      storeReceived, storeIssued, storeBalance, cutQty, sewQty, finishQty, fgQty, shipmentQty, balance, variance, status
+    };
   });
   if (!rows.length) {
-    rows = records_(ss.getSheetByName(ERP_SHEETS.reconciliation.name)).map(r => ({ buyer:String(r.Buyer||''), style:String(r.Style||''), po:String(r.PO||r['PO Number']||''), factory:String(r.Factory||''), orderQty:num_(r['Order Qty']), materialIssued:num_(r['Material Issued']), cutQty:num_(r['Cut Qty']), sewQty:num_(r['Sew Qty']), finishQty:num_(r['Finish Qty']), fgQty:num_(r['FG Qty']), shipmentQty:num_(r['Shipment Qty']), balance:num_(r.Balance), variance:num_(r.Variance), status:String(r.Status||'Attention') }));
+    rows = records_(ss.getSheetByName(ERP_SHEETS.reconciliation.name)).map(r => ({
+      buyer:String(r.Buyer||''), style:String(r.Style||''), color:String(r.Color||''), po:String(r.PO||r['PO Number']||''), factory:String(r.Factory||''),
+      orderMonth:monthKey_(r['Order Month']), orderQty:num_(r['Order Qty']),
+      materialRequired:num_(r['Material Required']), materialOrdered:num_(r['Material Ordered']), materialReceived:num_(r['Material Received']),
+      materialIssued:num_(r['Material Issued']), materialBalance:num_(r['Material Balance']), materialShortage:num_(r['Material Shortage']),
+      storeReceived:num_(r['Store Received']), storeIssued:num_(r['Store Issued']), storeBalance:num_(r['Store Balance']),
+      cutQty:num_(r['Cut Qty']), sewQty:num_(r['Sew Qty']), finishQty:num_(r['Finish Qty']), fgQty:num_(r['FG Qty']),
+      shipmentQty:num_(r['Shipment Qty']), balance:num_(r.Balance), variance:num_(r.Variance), status:String(r.Status||'Attention')
+    }));
   }
-  if (allowedFactories) rows = rows.filter(r => allowedFactories.includes(String(r.factory || '').trim().toLowerCase()));
+  if (allowedFactories) rows = rows.filter(r => allowedFactories.includes(factoryKey_({Factory:r.factory})));
   return { lastUpdated:new Date().toISOString(), reconciliation:rows };
 }
 
